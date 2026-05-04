@@ -16,6 +16,12 @@ variable "truenas_host" {
   description = "TrueNAS server IP"
 }
 
+variable "truenas_username" {
+  type        = string
+  default     = "root"
+  description = "TrueNAS root username"
+}
+
 variable "truenas_password" {
   type        = string
   sensitive   = true
@@ -58,4 +64,34 @@ variable "github_pat" {
   sensitive   = true
   description = "GitHub Personal Access Token for OpenClaw MCP. Supply via TF_VAR_github_pat env var."
   default     = null
+}
+
+variable "qbittorrent_host" {
+  type        = string
+  default     = "http://10.0.0.160:10000"
+  description = "qBittorrent server URL"
+}
+
+variable "qbittorrent_username" {
+  type        = string
+  default     = "hubbertj"
+  description = "qBittorrent username"
+}
+
+variable "qbittorrent_password" {
+  type        = string
+  sensitive   = true
+  description = "qBittorrent password. Supply via TF_VAR_qbittorrent_password env var."
+}
+
+variable "media_movies_path" {
+  type        = string
+  default     = "/mnt/WB-RAID-Z-18TB/movies/"
+  description = "TrueNAS path for movie files"
+}
+
+variable "media_tv_path" {
+  type        = string
+  default     = "/mnt/WB-RAID-Z-18TB/tv/"
+  description = "TrueNAS path for TV show files"
 }
