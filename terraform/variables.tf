@@ -63,13 +63,19 @@ variable "github_pat" {
   type        = string
   sensitive   = true
   description = "GitHub Personal Access Token for OpenClaw MCP. Supply via TF_VAR_github_pat env var."
-  default     = null
+  default     = ""
+}
+
+variable "truenas_internal_host" {
+  type        = string
+  default     = "172.16.100.1"
+  description = "TrueNAS IP reachable from the OpenClaw VM via the internal br0 bridge (avoids macvtap isolation)."
 }
 
 variable "qbittorrent_host" {
   type        = string
-  default     = "http://10.0.0.160:10000"
-  description = "qBittorrent server URL"
+  default     = "http://172.16.100.1:10000"
+  description = "qBittorrent server URL (uses internal bridge address)"
 }
 
 variable "qbittorrent_username" {

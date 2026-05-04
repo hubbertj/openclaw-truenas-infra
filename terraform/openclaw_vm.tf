@@ -70,7 +70,7 @@ resource "null_resource" "openclaw_vm_config" {
       echo "==> Configuring GitHub MCP if PAT is provided..."
       
       echo "==> Configuring media understanding for image/video..."
-      openclaw config set tools.media.models '[{id: "amazon-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0", capabilities: ["image", "video"]}]'
+      openclaw config set tools.media.models '[{provider: "amazon-bedrock", model: "us.anthropic.claude-haiku-4-5-20251001-v1:0", capabilities: ["image", "video"]}]'
       if [ -n "$GITHUB_PAT" ]; then
         openclaw config set mcp.servers.github '{command: "npx", args: ["@modelcontextprotocol/server-github"], env: {GITHUB_PERSONAL_ACCESS_TOKEN: "'$GITHUB_PAT'"}}'  
       else
@@ -85,10 +85,10 @@ AWS_ACCESS_KEY_ID=$AWS_KEY_ID
 AWS_SECRET_ACCESS_KEY=$AWS_KEY_SECRET
 AWS_REGION=$AWS_REGION
 GITHUB_PERSONAL_ACCESS_TOKEN=$GITHUB_PAT
-TRUENAS_HOST=10.0.0.160
+TRUENAS_HOST=${var.truenas_internal_host}
 TRUENAS_USERNAME=root
 TRUENAS_PASSWORD=Admin1
-QBITTORRENT_HOST=http://10.0.0.160:10000
+QBITTORRENT_HOST=${var.qbittorrent_host}
 QBITTORRENT_USERNAME=hubbertj
 QBITTORRENT_PASSWORD=admin1
 MEDIA_MOVIES_PATH=/mnt/WB-RAID-Z-18TB/movies/

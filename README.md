@@ -1,78 +1,147 @@
 # OpenClaw TrueNAS Infrastructure
 
-Infrastructure as Code (IaC) for managing [OpenClaw](https://openclaw.ai/) on TrueNAS with Amazon Bedrock integration.
+Infrastructure as Code (IaC) for deploying [OpenClaw](https://openclaw.ai/) on a dedicated Ubuntu VM hosted by TrueNAS, with Amazon Bedrock integration.
 
 ## Overview
 
 This repository uses Terraform to:
-1.  **Provision AWS Resources:** Creates an IAM user with `AmazonBedrockFullAccess` and generates access keys.
-2.  **Configure TrueNAS:** Updates the OpenClaw configuration file (`openclaw.json`) and injects AWS credentials into the app container via the TrueNAS API.
-3.  **Automate Deployment:** Restarts the OpenClaw app to ensure all changes are applied and models are discovered.
-4.  **Manage State:** Stores Terraform state in a versioned S3 bucket for durability and collaboration.
+
+1. **Provision AWS Resources** — Creates an IAM user with `AmazonBedrockFullAccess` and generates access keys.
+2. **Configure the OpenClaw VM** — SSHs into the Ubuntu VM, applies OpenClaw config (Bedrock provider, media models, gateway bind), writes credentials to `~/.openclaw/openclaw.env`, and ensures the systemd service is running.
+3. **Set up HTTPS** — Installs nginx with a mkcert self-signed certificate on the VM, proxying `https://10.0.0.60/` → `http://localhost:18789`.
+4. **Configure TrueNAS networking** — Verifies connectivity between the VM and TrueNAS services via an internal bridge.
+5. **Sync GitHub Secrets** — Optionally pushes Bedrock credentials to GitHub repository secrets.
+
+## Infrastructure
+
+| Component | Details |
+|---|---|
+| OpenClaw VM | Ubuntu 24.04, `10.0.0.60`, TrueNAS VM ID 21 |
+| TrueNAS host | `10.0.0.160` (bond123 LACP), backup port `10.0.1.160` (eno4) |
+| Internal bridge | `br0` on TrueNAS — `172.16.100.1/24` (VM uses `172.16.100.2`) |
+| Cisco switch | `10.0.0.200` (HTTPS management only) |
+| AWS account | `914713788242` (profile: `aws-openclaw-ai`) |
+
+## Network Architecture
+
+The OpenClaw VM's primary NIC (`ens3`) is attached to TrueNAS's `bond123` via **macvtap**. This is a kernel-level limitation: a VM using macvtap on a physical interface **cannot communicate with the TrueNAS host's own IP** (`10.0.0.160`) through that interface. This is permanent and not fixable via firewall rules.
+
+**Workaround:** A second NIC (`ens4`) connects the VM to `br0`, a dedicated Linux bridge on TrueNAS with no physical members. All OpenClaw → TrueNAS communication uses this internal bridge:
+
+```
+OpenClaw VM (ens4: 172.16.100.2)
+        ↕  sub-ms latency
+TrueNAS br0 (172.16.100.1)
+        ↕  host-local
+TrueNAS services (qBittorrent :10000, API :80/:443, SSH :22)
+```
+
+`ping 10.0.0.160` from the VM will always fail — this is expected. `ping 172.16.100.1` should always succeed.
 
 ## Prerequisites
 
--   **AWS CLI:** Configured with an SSO profile named `aws-openclaw-ai`.
--   **Terraform:** Version 1.5 or higher.
--   **S3 Bucket:** `openclaw-truenas-infra-tfstate-914713788242` (Already created and managed by this project).
--   **SSH Access:** Required for reliable configuration updates on TrueNAS.
--   **Utilities:** `jq`, `curl`, and `sshpass` installed on the operator's machine.
+- **AWS CLI** configured with an SSO profile named `aws-openclaw-ai`
+- **Terraform** 1.5+
+- **S3 bucket** `openclaw-truenas-infra-tfstate-914713788242` (already exists)
+- **SSH key** for `openclaw@10.0.0.60` (passwordless)
 
 ## Deployment
 
-1.  **Authenticate AWS:**
-    ```bash
-    aws sso login --profile aws-openclaw-ai
-    ```
+### 1. Authenticate AWS
 
-2.  **Set Secrets:**
-    It is recommended to use environment variables to avoid sensitive data in command history:
-    ```bash
-    export TF_VAR_truenas_password="YOUR_PASSWORD"
-    export TF_VAR_github_token="YOUR_GITHUB_PAT" # Optional: syncs keys to GitHub Secrets
-    ```
+```bash
+aws sso login --profile aws-openclaw-ai
+```
 
-3.  **Run Terraform:**
-    ```bash
-    cd terraform
-    terraform init
-    terraform apply
-    ```
+### 2. Set required secrets
 
-## Secret Management
+```bash
+export TF_VAR_truenas_password="Admin1"
+export TF_VAR_openclaw_vm_password="admin1"
+export TF_VAR_qbittorrent_password="admin1"
+export TF_VAR_github_pat="ghp_..."       # optional — configures GitHub MCP in OpenClaw
+export TF_VAR_github_token="ghp_..."     # optional — syncs keys to GitHub Secrets
+```
 
-This project automatically syncs sensitive outputs to your GitHub repository secrets if `github_token` is provided. This allows other tools or CI/CD pipelines to access the provisioned credentials without manual entry.
+### 3. Apply
 
-The following secrets are managed:
-- `BEDROCK_ACCESS_KEY_ID`: Synced from AWS IAM output.
-- `BEDROCK_SECRET_ACCESS_KEY`: Synced from AWS IAM output.
+```bash
+cd terraform
+terraform init
+terraform apply
+```
 
 ## Accessing OpenClaw
 
-Once deployed, OpenClaw is accessible via your local network:
+- **HTTPS:** `https://10.0.0.60/`
+- **HTTP (direct):** `http://10.0.0.60:18789/`
 
--   **Web UI:** [http://10.0.0.160:30262/](http://10.0.0.160:30262/)
--   **Default Admin Token:** `fcf8e201f225a90912a002a139b871cfbfa2a6de5aef671c` (Set via Gateway Token)
+### Trust the self-signed certificate on Mac
 
-## Using Amazon Bedrock
+```bash
+scp openclaw@10.0.0.60:/etc/ssl/openclaw/rootCA.pem ~/Downloads/openclaw-rootCA.pem
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ~/Downloads/openclaw-rootCA.pem
+```
 
-1.  Open the OpenClaw Web UI.
-2.  Navigate to **Settings > Providers**.
-3.  Ensure **Amazon Bedrock** is enabled.
-4.  In the **Chat** interface, you can now select Bedrock models (e.g., `anthropic.claude-3-5-sonnet-20241022-v2:0`).
+## Amazon Bedrock Models
 
-> **Note:** Models are automatically discovered. If a specific model is not listed, verify that you have enabled access for it in the AWS Console (Bedrock > Model access).
+The following cross-region inference profile IDs are configured (Claude 4.x requires `us.*` prefix):
+
+| Model | ID |
+|---|---|
+| Claude Opus 4.7 | `us.anthropic.claude-opus-4-7` |
+| Claude Sonnet 4.6 | `us.anthropic.claude-sonnet-4-6` |
+| Claude Opus 4.5 | `us.anthropic.claude-opus-4-5-20251101-v1:0` |
+| Claude Sonnet 4.5 | `us.anthropic.claude-sonnet-4-5-20250929-v1:0` |
+
+Media understanding (image/video) uses `us.anthropic.claude-haiku-4-5-20251001-v1:0` via the `amazon-bedrock` provider.
+
+## Secret Management
+
+If `TF_VAR_github_token` is set, Terraform syncs these to GitHub repository secrets:
+
+- `BEDROCK_ACCESS_KEY_ID`
+- `BEDROCK_SECRET_ACCESS_KEY`
 
 ## Troubleshooting
 
--   **Logs:** Check the container logs via SSH:
-    ```bash
-    ssh root@10.0.0.160 "docker logs \$(docker ps -q --filter name=openclaw)"
-    ```
--   **Config Path:** The main configuration is stored at:
-    `/mnt/.ix-apps/app_mounts/openclaw/config/.openclaw/openclaw.json`
--   **API Issues:** If the TrueNAS API fails to update environment variables, Terraform will report a job failure. Check the job status in the TrueNAS UI or via `curl`.
+### OpenClaw not reachable
+
+```bash
+# Check service status
+ssh openclaw@10.0.0.60 "XDG_RUNTIME_DIR=/run/user/1000 systemctl --user status openclaw-gateway"
+
+# Check health endpoint
+curl -sf http://10.0.0.60:18789/health
+
+# Tail logs
+ssh openclaw@10.0.0.60 "XDG_RUNTIME_DIR=/run/user/1000 journalctl --user -u openclaw-gateway -f"
+```
+
+### TrueNAS services unreachable from VM
+
+```bash
+ssh openclaw@10.0.0.60 "ping -c 3 172.16.100.1"        # bridge — should always work
+ssh openclaw@10.0.0.60 "ping -c 3 10.0.0.160"          # macvtap — always fails, expected
+ssh openclaw@10.0.0.60 "curl -sf http://172.16.100.1:10000/api/v2/app/webapiVersion"
+```
+
+If `172.16.100.1` is unreachable, the `br0` interface on TrueNAS may have been lost after a reboot. Recreate it via the TrueNAS UI (Network → Interfaces → Add Bridge) with IP `172.16.100.1/24` and no members, then re-run `terraform apply` to reprovision the VM NIC.
+
+### Config file location
+
+```
+/home/openclaw/.openclaw/openclaw.json       # OpenClaw config
+/home/openclaw/.openclaw/openclaw.env        # AWS + TrueNAS credentials
+~/.config/systemd/user/openclaw-gateway.service
+/etc/netplan/99-internal-bridge.yaml         # ens4 static IP config
+```
+
+### Cisco switch
+
+Management UI: `https://10.0.0.200` (HTTPS only, no SSH/Telnet)  
+Credentials: `admin` / `Firewall102!A`
 
 ## License
 
-This project is licensed under the MIT License.
+MIT
