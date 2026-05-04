@@ -68,6 +68,9 @@ resource "null_resource" "openclaw_vm_config" {
       openclaw config set models.providers.amazon-bedrock '{baseUrl: "https://bedrock-runtime.us-east-1.amazonaws.com", api: "bedrock-converse-stream", auth: "aws-sdk", models: [{id: "us.anthropic.claude-opus-4-7", name: "Claude Opus 4.7"}, {id: "us.anthropic.claude-sonnet-4-6", name: "Claude Sonnet 4.6"}, {id: "us.anthropic.claude-opus-4-5-20251101-v1:0", name: "Claude Opus 4.5"}, {id: "us.anthropic.claude-sonnet-4-5-20250929-v1:0", name: "Claude Sonnet 4.5"}]}'
       
       echo "==> Configuring GitHub MCP if PAT is provided..."
+      
+      echo "==> Configuring media understanding for image/video..."
+      openclaw config set tools.media.models '[{id: "amazon-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0", capabilities: ["image", "video"]}]'
       if [ -n "$GITHUB_PAT" ]; then
         openclaw config set mcp.servers.github '{command: "npx", args: ["@modelcontextprotocol/server-github"], env: {GITHUB_PERSONAL_ACCESS_TOKEN: "'$GITHUB_PAT'"}}'  
       else
