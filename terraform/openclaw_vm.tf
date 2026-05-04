@@ -34,7 +34,7 @@ resource "null_resource" "openclaw_vm_config" {
       AWS_REGION='${var.aws_region}'
       AWS_KEY_ID='${aws_iam_access_key.openclaw_bedrock.id}'
       AWS_KEY_SECRET='${aws_iam_access_key.openclaw_bedrock.secret}'
-      GITHUB_PAT='${var.github_pat}'
+      GITHUB_PAT='${var.github_pat != null ? var.github_pat : ""}'
 
       run_sudo() {
         echo "$VM_PASSWORD" | sudo -S -E "$@"

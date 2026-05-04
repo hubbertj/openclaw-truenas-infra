@@ -17,7 +17,7 @@ resource "null_resource" "configure_truenas_firewall" {
   provisioner "remote-exec" {
     inline = [
       <<-EOF
-      bash <<'FIREWALLSCRIPT'
+      /bin/sh <<'FIREWALLSCRIPT'
       set -euo pipefail
       
       echo "==> [$(date)] Configuring TrueNAS firewall for OpenClaw VM..."
@@ -80,7 +80,7 @@ resource "null_resource" "test_network_connectivity" {
   provisioner "remote-exec" {
     inline = [
       <<-EOF
-      bash <<'TESTSCRIPT'
+      /bin/sh <<'TESTSCRIPT'
       set -euo pipefail
       
       echo "==> [$(date)] Testing network connectivity to TrueNAS..."
