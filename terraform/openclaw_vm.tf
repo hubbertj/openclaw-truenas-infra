@@ -34,6 +34,7 @@ resource "null_resource" "openclaw_vm_config" {
       AWS_REGION='${var.aws_region}'
       AWS_KEY_ID='${aws_iam_access_key.openclaw_bedrock.id}'
       AWS_KEY_SECRET='${aws_iam_access_key.openclaw_bedrock.secret}'
+      GITHUB_PAT='${var.github_pat}'
 
       run_sudo() {
         echo "$VM_PASSWORD" | sudo -S -E "$@"
@@ -65,6 +66,13 @@ resource "null_resource" "openclaw_vm_config" {
       # Claude 4.x on Bedrock requires cross-region inference profile IDs (us.*), not direct model IDs.
       # Models must be objects {id, name} — plain strings fail schema validation since OpenClaw 2026.5.x.
       openclaw config set models.providers.amazon-bedrock '{baseUrl: "https://bedrock-runtime.us-east-1.amazonaws.com", api: "bedrock-converse-stream", auth: "aws-sdk", models: [{id: "us.anthropic.claude-opus-4-7", name: "Claude Opus 4.7"}, {id: "us.anthropic.claude-sonnet-4-6", name: "Claude Sonnet 4.6"}, {id: "us.anthropic.claude-opus-4-5-20251101-v1:0", name: "Claude Opus 4.5"}, {id: "us.anthropic.claude-sonnet-4-5-20250929-v1:0", name: "Claude Sonnet 4.5"}]}'
+      
+      echo "==> Configuring GitHub MCP if PAT is provided..."
+      if [ -n "$GITHUB_PAT" ]; then
+        openclaw config set mcp.servers.github '{command: "npx", args: ["@modelcontextprotocol/server-github"], env: {GITHUB_PERSONAL_ACCESS_TOKEN: "'$GITHUB_PAT'"}}'  
+      else
+        echo "WARN: GITHUB_PAT not provided, skipping GitHub MCP configuration."
+      fi
       openclaw config set plugins.entries.amazon-bedrock '{enabled: true, config: {discovery: {enabled: true, region: "us-east-1"}}}'
 
       echo "==> Setting up AWS environment file..."
@@ -73,6 +81,7 @@ resource "null_resource" "openclaw_vm_config" {
 AWS_ACCESS_KEY_ID=$AWS_KEY_ID
 AWS_SECRET_ACCESS_KEY=$AWS_KEY_SECRET
 AWS_REGION=$AWS_REGION
+GITHUB_PERSONAL_ACCESS_TOKEN=$GITHUB_PAT
 EON
 
       echo "==> Ensuring systemd service is correctly configured..."
