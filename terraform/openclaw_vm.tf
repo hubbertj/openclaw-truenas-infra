@@ -58,12 +58,13 @@ resource "null_resource" "openclaw_vm_config" {
       openclaw config set gateway.controlUi.allowedOrigins '["*"]'
 
       echo "==> Resetting and injecting Bedrock provider config..."
-      # Delete existing to clear any stale/invalid state
-      openclaw config delete models.providers.amazon-bedrock || true
-      openclaw config delete plugins.entries.amazon-bedrock || true
+      # Clear any stale/invalid state before re-applying
+      openclaw config unset models.providers.amazon-bedrock || true
+      openclaw config unset plugins.entries.amazon-bedrock || true
 
       # Claude 4.x on Bedrock requires cross-region inference profile IDs (us.*), not direct model IDs.
-      openclaw config set models.providers.amazon-bedrock '{baseUrl: "https://bedrock-runtime.us-east-1.amazonaws.com", api: "bedrock-converse-stream", auth: "aws-sdk", models: ["us.anthropic.claude-opus-4-7", "us.anthropic.claude-sonnet-4-6", "us.anthropic.claude-opus-4-5-20251101-v1:0", "us.anthropic.claude-sonnet-4-5-20250929-v1:0"]}'
+      # Models must be objects {id, name} — plain strings fail schema validation since OpenClaw 2026.5.x.
+      openclaw config set models.providers.amazon-bedrock '{baseUrl: "https://bedrock-runtime.us-east-1.amazonaws.com", api: "bedrock-converse-stream", auth: "aws-sdk", models: [{id: "us.anthropic.claude-opus-4-7", name: "Claude Opus 4.7"}, {id: "us.anthropic.claude-sonnet-4-6", name: "Claude Sonnet 4.6"}, {id: "us.anthropic.claude-opus-4-5-20251101-v1:0", name: "Claude Opus 4.5"}, {id: "us.anthropic.claude-sonnet-4-5-20250929-v1:0", name: "Claude Sonnet 4.5"}]}'
       openclaw config set plugins.entries.amazon-bedrock '{enabled: true, config: {discovery: {enabled: true, region: "us-east-1"}}}'
 
       echo "==> Setting up AWS environment file..."
@@ -101,6 +102,117 @@ EON
       done
 
       echo "ERROR: OpenClaw health check failed."
+      exit 1
+REMOTESCRIPT
+EOF
+    ]
+  }
+}
+
+resource "null_resource" "openclaw_vm_nginx" {
+  depends_on = [null_resource.openclaw_vm_config]
+
+  triggers = {
+    vm_host     = var.openclaw_vm_host
+    script_hash = filemd5("${path.module}/openclaw_vm.tf")
+  }
+
+  connection {
+    type     = "ssh"
+    host     = var.openclaw_vm_host
+    user     = var.openclaw_vm_user
+    password = var.openclaw_vm_password
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      <<-EOF
+      bash <<'REMOTESCRIPT'
+      set -euo pipefail
+      exec > >(tee -a /tmp/openclaw_nginx_deploy.log) 2>&1
+      echo "==> [$(date)] Starting nginx/TLS setup..."
+
+      VM_PASSWORD='${var.openclaw_vm_password}'
+
+      run_sudo() {
+        echo "$VM_PASSWORD" | sudo -S -E "$@"
+      }
+
+      export DEBIAN_FRONTEND=noninteractive
+
+      # Step 1 — Install packages
+      run_sudo apt-get update -qq
+      run_sudo apt-get install -y nginx libnss3-tools
+
+      # Step 2 — Install mkcert (idempotent)
+      if [ ! -f /usr/local/bin/mkcert ]; then
+        curl -fsSL "https://dl.filippo.io/mkcert/latest?for=linux/amd64" -o /tmp/mkcert
+        chmod +x /tmp/mkcert
+        run_sudo mv /tmp/mkcert /usr/local/bin/mkcert
+      fi
+
+      # Step 3 — Generate local CA and certificate
+      run_sudo mkdir -p /etc/ssl/openclaw
+      run_sudo env CAROOT=/etc/ssl/openclaw mkcert -install
+      run_sudo env CAROOT=/etc/ssl/openclaw mkcert \
+        -cert-file /etc/ssl/openclaw/cert.pem \
+        -key-file  /etc/ssl/openclaw/key.pem \
+        10.0.0.60 localhost
+      run_sudo chmod 644 /etc/ssl/openclaw/cert.pem
+      run_sudo chmod 600 /etc/ssl/openclaw/key.pem
+
+      # Step 4 — Write nginx config via temp file
+      cat <<'NGINXCONF' > /tmp/openclaw_nginx.conf
+server {
+    listen 443 ssl;
+    server_name 10.0.0.60 localhost;
+
+    ssl_certificate     /etc/ssl/openclaw/cert.pem;
+    ssl_certificate_key /etc/ssl/openclaw/key.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
+
+    location / {
+        proxy_pass         http://localhost:18789;
+        proxy_http_version 1.1;
+        proxy_set_header   Upgrade $http_upgrade;
+        proxy_set_header   Connection "upgrade";
+        proxy_set_header   Host $host;
+        proxy_set_header   X-Real-IP $remote_addr;
+        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto https;
+        proxy_read_timeout 86400;
+    }
+}
+
+server {
+    listen 80;
+    server_name 10.0.0.60 localhost;
+    return 301 https://$host$request_uri;
+}
+NGINXCONF
+
+      run_sudo cp /tmp/openclaw_nginx.conf /etc/nginx/sites-available/openclaw
+      run_sudo chmod 644 /etc/nginx/sites-available/openclaw
+      rm /tmp/openclaw_nginx.conf
+
+      # Step 5 — Enable and start nginx
+      run_sudo ln -sf /etc/nginx/sites-available/openclaw /etc/nginx/sites-enabled/openclaw
+      run_sudo rm -f /etc/nginx/sites-enabled/default
+      run_sudo nginx -t
+      run_sudo systemctl enable nginx
+      run_sudo systemctl restart nginx
+
+      # Step 6 — Health check
+      for i in {1..12}; do
+        if curl -sf https://10.0.0.60/ > /dev/null 2>&1; then
+          echo "==> HTTPS is up."
+          exit 0
+        fi
+        sleep 5
+      done
+      echo "ERROR: HTTPS health check timed out."
+      journalctl -u nginx --no-pager -n 20 || true
       exit 1
 REMOTESCRIPT
 EOF
