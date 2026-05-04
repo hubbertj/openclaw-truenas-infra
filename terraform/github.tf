@@ -21,6 +21,20 @@ resource "github_actions_secret" "bedrock_secret_access_key" {
   plaintext_value = aws_iam_access_key.openclaw_bedrock.secret
 }
 
+resource "github_actions_secret" "truenas_password" {
+  count           = var.github_token != null ? 1 : 0
+  repository      = split("/", var.github_repository)[1]
+  secret_name     = "TRUENAS_PASSWORD"
+  plaintext_value = var.truenas_password
+}
+
+resource "github_actions_secret" "openclaw_vm_password" {
+  count           = var.github_token != null ? 1 : 0
+  repository      = split("/", var.github_repository)[1]
+  secret_name     = "OPENCLAW_VM_PASSWORD"
+  plaintext_value = var.openclaw_vm_password
+}
+
 locals {
   effective_truenas_password = var.truenas_password
 }

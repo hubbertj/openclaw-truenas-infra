@@ -14,3 +14,8 @@ output "bedrock_secret_access_key" {
   sensitive   = true
   description = "AWS secret access key for Bedrock"
 }
+
+output "openclaw_vm_ip" {
+  value       = var.openclaw_vm_host
+  description = "The IP address of the OpenClaw VM."
+}

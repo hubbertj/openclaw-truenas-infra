@@ -34,3 +34,21 @@ variable "github_repository" {
   default     = "hubbertj/openclaw-truenas-infra"
   description = "GitHub repository name (owner/repo)."
 }
+
+variable "openclaw_vm_host" {
+  type        = string
+  default     = "10.0.0.60"
+  description = "IP address of the OpenClaw VM."
+}
+
+variable "openclaw_vm_user" {
+  type        = string
+  default     = "openclaw"
+  description = "SSH username for the OpenClaw VM."
+}
+
+variable "openclaw_vm_password" {
+  type        = string
+  sensitive   = true
+  description = "SSH password for the OpenClaw VM. Supply via TF_VAR_openclaw_vm_password."
+}
