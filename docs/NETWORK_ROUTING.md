@@ -1,7 +1,7 @@
 # Network Routing Configuration
 
 ## Problem
-OpenClaw VM (10.0.0.60) cannot reach TrueNAS server (10.0.0.160) or its applications like qBittorrent.
+OpenClaw VM (10.0.0.60) cannot reach TrueNAS server (172.16.100.1) or its applications like qBittorrent.
 
 ## Solution
 Configure TrueNAS firewall and network settings to allow traffic from OpenClaw VM.
@@ -27,11 +27,11 @@ ip link show | grep -i bridge
 SSH to TrueNAS root and run:
 ```bash
 # Allow traffic from OpenClaw VM to TrueNAS
-ufw allow from 10.0.0.60 to 10.0.0.160
-ufw allow from 10.0.0.60 to 10.0.0.160 port 10000  # qBittorrent
+ufw allow from 10.0.0.60 to 172.16.100.1
+ufw allow from 10.0.0.60 to 172.16.100.1 port 10000  # qBittorrent
 
 # Allow SSH from OpenClaw VM
-ufw allow from 10.0.0.60 to 10.0.0.160 port 22
+ufw allow from 10.0.0.60 to 172.16.100.1 port 22
 
 # Reload firewall
 ufw reload
@@ -44,13 +44,13 @@ ufw status
 From OpenClaw VM:
 ```bash
 # Test basic connectivity
-ping 10.0.0.160
+ping 172.16.100.1
 
 # Test qBittorrent API
-curl http://10.0.0.160:10000/api/v2/app/webapiVersion
+curl http://172.16.100.1:10000/api/v2/app/webapiVersion
 
 # Test SSH
-ssh root@10.0.0.160
+ssh root@172.16.100.1
 ```
 
 ### 4. TrueNAS qBittorrent App Network Configuration
