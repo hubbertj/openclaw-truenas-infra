@@ -52,3 +52,10 @@ variable "openclaw_vm_password" {
   sensitive   = true
   description = "SSH password for the OpenClaw VM. Supply via TF_VAR_openclaw_vm_password."
 }
+
+variable "github_pat" {
+  type        = string
+  sensitive   = true
+  description = "GitHub Personal Access Token for OpenClaw MCP. Supply via TF_VAR_github_pat env var."
+  default     = null
+}
