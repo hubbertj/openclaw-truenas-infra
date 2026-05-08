@@ -51,11 +51,16 @@ resource "null_resource" "openclaw_vm_config" {
       # Ensure OpenClaw is in PATH
       export PATH="$PATH:$(npm config get prefix)/bin"
 
+      echo "==> Fixing npm cache ownership if needed..."
+      if [ -d "$HOME/.npm" ] && [ "$(stat -c '%U' "$HOME/.npm")" != "$(whoami)" ]; then
+        echo "$VM_PASSWORD" | sudo -S chown -R "$(id -u):$(id -g)" "$HOME/.npm"
+      fi
+
       echo "==> Installing/upgrading OpenClaw to version: $OPENCLAW_VERSION..."
       if [ "$OPENCLAW_VERSION" = "latest" ]; then
-        npm install -g openclaw
+        run_sudo npm install -g openclaw
       else
-        npm install -g openclaw@$OPENCLAW_VERSION
+        run_sudo npm install -g "openclaw@$OPENCLAW_VERSION"
       fi
 
       echo "==> Initializing OpenClaw if needed..."
