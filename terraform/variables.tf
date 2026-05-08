@@ -101,3 +101,9 @@ variable "media_tv_path" {
   default     = "/mnt/WB-RAID-Z-18TB/tv/"
   description = "TrueNAS path for TV show files"
 }
+
+variable "openclaw_version" {
+  type        = string
+  default     = "latest"
+  description = "OpenClaw npm package version to install (e.g. '2026.5.7' or 'latest')."
+}

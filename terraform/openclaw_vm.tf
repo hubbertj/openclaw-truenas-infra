@@ -3,11 +3,12 @@
 
 resource "null_resource" "openclaw_vm_config" {
   triggers = {
-    # Re-run if the Bedrock config, connection info, or the script itself changes
+    # Re-run if the Bedrock config, connection info, the script, or the target version changes
     bedrock_config_hash = sha256(jsonencode(local.bedrock_config))
     vm_host             = var.openclaw_vm_host
     access_key_id       = aws_iam_access_key.openclaw_bedrock.id
     script_hash         = filemd5("${path.module}/openclaw_vm.tf")
+    openclaw_version    = var.openclaw_version
   }
 
   connection {
@@ -35,6 +36,7 @@ resource "null_resource" "openclaw_vm_config" {
       AWS_KEY_ID='${aws_iam_access_key.openclaw_bedrock.id}'
       AWS_KEY_SECRET='${aws_iam_access_key.openclaw_bedrock.secret}'
       GITHUB_PAT='${var.github_pat}'
+      OPENCLAW_VERSION='${var.openclaw_version}'
 
       run_sudo() {
         echo "$VM_PASSWORD" | sudo -S -E "$@"
@@ -45,9 +47,16 @@ resource "null_resource" "openclaw_vm_config" {
       # Ensure environment for systemctl --user
       export XDG_RUNTIME_DIR="/run/user/$(id -u)"
       export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
-      
+
       # Ensure OpenClaw is in PATH
       export PATH="$PATH:$(npm config get prefix)/bin"
+
+      echo "==> Installing/upgrading OpenClaw to version: $OPENCLAW_VERSION..."
+      if [ "$OPENCLAW_VERSION" = "latest" ]; then
+        npm install -g openclaw
+      else
+        npm install -g openclaw@$OPENCLAW_VERSION
+      fi
 
       echo "==> Initializing OpenClaw if needed..."
       if [ ! -d "$HOME/.openclaw" ]; then
